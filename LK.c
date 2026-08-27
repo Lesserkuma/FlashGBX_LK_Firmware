@@ -221,6 +221,8 @@ void lk_loop(u8 command) {
 				u8 size = lk_conn_recv_u8();
 				u32 key = lk_conn_recv_u32();
 				u32 value = lk_conn_recv_u32();
+
+				LK_DEVICE_ON_SET_VARIABLE(size, key, value);
 				
 				if (size == 1) {
 					_lk_var8[key] = value;
