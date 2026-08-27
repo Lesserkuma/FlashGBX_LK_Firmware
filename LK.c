@@ -17,6 +17,9 @@ u8 _lk_bankcmd_num = 0;
 u32 _lk_bankcmd_addr[3];
 u8 _lk_bankcmd_mode[3];
 u8 data_buffer[0x1000];
+#if LK_ASYNC
+u8 verify_data_buffer[CHUNK_MAX_LEN];
+#endif
 u16 flash_write_cycle[3][2];
 u32 time_start = 0;
 bool auto_off_timer_suspended = false;
@@ -678,6 +681,13 @@ void lk_loop(u8 command) {
 						}
 					}
 				}
+#if LK_ASYNC
+				u32 flush_count = LK_ASYNC_PENDING_VERIFY_STATUS_REGISTER_COUNT();
+				if (flush_count) {
+					lk_conn_send_u8(LK_ASYNC_VERIFY_STATUS_REGISTER_FLUSH(verify_data_buffer, flush_count));
+					break;
+				}
+#endif
 
 				if (_timeout_check()) {
 					lk_conn_send_u8(LK_STATUS_ERROR);
@@ -1161,6 +1171,7 @@ void lk_dmg_cart_read_data(void) {
 				PIN_RD_H();
 			}
 		}
+		LK_ASYNC_FLUSH(data_buffer, chunk_len);
 
 		lk_conn_send(data_buffer, chunk_len);
 		left -= chunk_len;
@@ -1169,11 +1180,21 @@ void lk_dmg_cart_read_data(void) {
 }
 void lk_dmg_mbc7_read_eeprom(void) {
 	for (u32 x = 0; x < _lk_var16[LK_VAR16_TRANSFER_SIZE]; x += 2) {
+		u8* it = data_buffer;
 		lk_dmg_mbc7_set_cmd(_lk_var32[LK_VAR32_ADDRESS]++, LK_MODE_RAM_READ);
-		u16 data = 0;
 		for (u8 y = 0; y < 16; y++) {
 			lk_dmg_mbc7_write(0);
-			data = (data << 1) | (lk_dmg_cart_read_byte(0xA080) & 1);
+			*it = lk_dmg_cart_read_byte(0xA080);
+			++it;
+		}
+	}
+
+	LK_ASYNC_FLUSH(data_buffer, _lk_var16[LK_VAR16_TRANSFER_SIZE]);
+
+	for (u32 x = 0; x < _lk_var16[LK_VAR16_TRANSFER_SIZE]; x += 2) {
+		u16 data = 0;
+		for (u8 y = 0; y < 16; y++) {
+			data = (data << 1) | (data_buffer[y] & 1);
 		}
 		lk_conn_send_u16(data);
 	}
@@ -1194,6 +1215,7 @@ void lk_dmg_mbc7_write_eeprom(void) {
 }
 
 void lk_dmg_verify_data(u32 addr, u16 comp) {
+#if (!LK_ASYNC)
 	_timeout_init();
 	u8 data;
 	PIN_RD_L();
@@ -1218,8 +1240,23 @@ void lk_dmg_verify_data(u32 addr, u16 comp) {
 			break;
 		}
 	}
+#else
+	/* This shouldn't be called *per-byte*, but the buffered mode can end up
+	    calling this once per chunk, so let's still push the loop to
+	    microcode instead of adding millis-to-micros of USB transactions per
+	    iteration */
+	u8 data;
+	RAW_DMG_ADDR_SET(addr & 0xFFFF);
+	LK_ASYNC_VERIFY_DATA(comp);
+	LK_ASYNC_FLUSH(&data, 1);
+	if (data != comp) {
+		dprint("lk_dmg_verify_data(addr=%x, comp=%x): Timed out with %x!\r\n", addr, comp, data);
+		_lk_var16[LK_VAR16_STATUS_REGISTER] = data;
+	}
+#endif
 }
 void lk_dmg_verify_status_register(u32 addr) {
+#if (!LK_ASYNC)
 	_timeout_init();
 	RAW_DMG_DATA_SET(0);
 	RAW_DMG_DATA_DIR_IN();
@@ -1242,6 +1279,15 @@ void lk_dmg_verify_status_register(u32 addr) {
 		}
 	}
 	RAW_DMG_DATA_DIR_OUT();
+#else
+	/* Like lk_dmg_verify_data(), this shouldn't be called once per byte,
+	 * but can be called once per N bytes by buffered writes. */
+	u8 data;
+	RAW_DMG_ADDR_SET(addr & 0xFFFF);
+	LK_ASYNC_VERIFY_STATUS_REGISTER();
+	/* Calls dprint and sets LK_VAR16_STATUS_REGISTER for us */
+	LK_ASYNC_VERIFY_STATUS_REGISTER_FLUSH(&data, 1);
+#endif
 }
 void lk_dmg_flash_write_byte(u32 address, u16 value) {
 	PIN_WR_H();
@@ -1334,7 +1380,12 @@ void lk_dmg_flash_mbc6(u16 buffer_offset) {
 	lk_dmg_cart_write_byte(_lk_var32[LK_VAR32_ADDRESS]-1, 0x00);
 	
 	// Status register check
+#if (!LK_ASYNC)
 	lk_dmg_verify_status_register(_lk_var32[LK_VAR32_ADDRESS]-1);
+#else
+	RAW_DMG_ADDR_SET(_lk_var32[LK_VAR32_ADDRESS]-1);
+	LK_ASYNC_VERIFY_STATUS_REGISTER();
+#endif
 }
 
 void lk_dmg_flash_E201264(u16 buffer_offset) {
@@ -1350,7 +1401,12 @@ void lk_dmg_flash_E201264(u16 buffer_offset) {
 	lk_dmg_cart_write_byte(_lk_var32[LK_VAR32_ADDRESS], 0x00);
 	_lk_var32[LK_VAR32_ADDRESS] += 128;
 	lk_dmg_cart_write_byte(0x4000, 0x70);
-	lk_dmg_verify_status_register(_lk_var32[LK_VAR32_ADDRESS] - 1);
+#if (!LK_ASYNC)
+	lk_dmg_verify_status_register(_lk_var32[LK_VAR32_ADDRESS]-1);
+#else
+	RAW_DMG_ADDR_SET(_lk_var32[LK_VAR32_ADDRESS]-1);
+	LK_ASYNC_VERIFY_STATUS_REGISTER();
+#endif
 	lk_dmg_cart_write_byte(0x4000, 0xFF);
 }
 
@@ -1366,7 +1422,12 @@ void lk_dmg_flash_bung_16m(u16 buffer_offset) {
 		lk_dmg_flash_write_byte(_lk_var32[LK_VAR32_ADDRESS]++, data_buffer[buffer_offset+x]);
 	}
 	_delay_us(100);
-	lk_dmg_verify_status_register(_lk_var32[LK_VAR32_ADDRESS] - 1);
+#if (!LK_ASYNC)
+	lk_dmg_verify_status_register(_lk_var32[LK_VAR32_ADDRESS]-1);
+#else
+	RAW_DMG_ADDR_SET(_lk_var32[LK_VAR32_ADDRESS]-1);
+	LK_ASYNC_VERIFY_STATUS_REGISTER();
+#endif
 }
 
 void lk_dmg_flash_datel_orbitv2() {
@@ -1404,8 +1465,13 @@ void lk_dmg_flash_mmsa(u16 buffer_offset) {
 	}
 	lk_dmg_cart_write_byte(_lk_var32[LK_VAR32_ADDRESS] - 1, 0xFF);
 	_delay_ms(4);
-	lk_dmg_verify_status_register(_lk_var32[LK_VAR32_ADDRESS] - 1);
-	#ifdef ENABLE_INTERRUPTS
+#if (!LK_ASYNC)
+	lk_dmg_verify_status_register(_lk_var32[LK_VAR32_ADDRESS]-1);
+#else
+	RAW_DMG_ADDR_SET(_lk_var32[LK_VAR32_ADDRESS]-1);
+	LK_ASYNC_VERIFY_STATUS_REGISTER();
+#endif
+#ifdef ENABLE_INTERRUPTS
 		ENABLE_INTERRUPTS();
 	#endif
 }
@@ -1805,8 +1871,12 @@ void lk_dmg_agb_flash_unbuffered(void) {
 
 	if ((_lk_var8[LK_VAR8_FLASH_COMMAND_SET] == LK_FLASH_COMMAND_SET_AMD)) {
 		if (_lk_var8[LK_VAR8_CART_MODE] == LK_MODE_DMG) {
+			u16 base_address = _lk_var32[LK_VAR32_ADDRESS] & 0xFFFF;
+			u16 written = 0;
+
 			for (u16 x = 0; x < _lk_var16[LK_VAR16_TRANSFER_SIZE]; x++) {
 				if (data_buffer[x] != 0xFF) {
+					written++;
 					if (_lk_var8[LK_VAR8_FLASH_COMMANDS_BANK_1] == 1) {
 						lk_dmg_change_bank(1);
 					}
@@ -1827,11 +1897,26 @@ void lk_dmg_agb_flash_unbuffered(void) {
 							lk_dmg_change_bank(_lk_var16[LK_VAR16_LAST_BANK_ACCESSED]);
 						}
 					}
+#if (!LK_ASYNC)
 					lk_dmg_verify_data(_lk_var32[LK_VAR32_ADDRESS], data_buffer[x]);
+#else
+					LK_ASYNC_VERIFY_DATA(data_buffer[x]);
+#endif
 					if (_timeout_check()) break;
 				}
 				_lk_var32[LK_VAR32_ADDRESS]++;
 			}
+#if LK_ASYNC
+			LK_ASYNC_FLUSH(verify_data_buffer, written);
+			for (u16 x = 0; x < _lk_var16[LK_VAR16_TRANSFER_SIZE]; x++) {
+				if (data_buffer[x] == 0xFF) continue;
+				if (data_buffer[x] != verify_data_buffer[x]) {
+					dprint("LK_ASYNC_VERIFY_DATA(addr=%x, comp=%x): Timed out with %x!\r\n", base_address + x, data_buffer[x], verify_data_buffer[x]);
+					_lk_var16[LK_VAR16_STATUS_REGISTER] = verify_data_buffer[x];
+					break;
+				}
+			}
+#endif
 		} else { // AGB
 			for (u16 x = 0; x < _lk_var16[LK_VAR16_TRANSFER_SIZE]; x += 2) {
 				data = data_buffer[x + 1] << 8 | data_buffer[x];
@@ -1849,17 +1934,31 @@ void lk_dmg_agb_flash_unbuffered(void) {
 
 	} else { /*if ((_lk_var8[LK_VAR8_FLASH_COMMAND_SET] == FLASH_COMMAND_SET_INTEL)) {*/
 		if (_lk_var8[LK_VAR8_CART_MODE] == LK_MODE_DMG) {
+			u16 status_register_count = 0;
 			for (u16 x = 0; x < _lk_var16[LK_VAR16_TRANSFER_SIZE]; x++) {
 				if (data_buffer[x] != 0xFF) {
 					lk_dmg_flash_write_byte(_lk_var32[LK_VAR32_ADDRESS], _lk_flashcmd_data[0]);		// 0=70
+#if (!LK_ASYNC)
 					lk_dmg_verify_status_register(_lk_var32[LK_VAR32_ADDRESS]);
+#else
+					LK_ASYNC_VERIFY_STATUS_REGISTER();
+					status_register_count++;
+#endif
 					lk_dmg_flash_write_byte(_lk_var32[LK_VAR32_ADDRESS], _lk_flashcmd_data[1]);		// 0=10
 					lk_dmg_flash_write_byte(_lk_var32[LK_VAR32_ADDRESS], data_buffer[x]);			// PA=PD
+#if (!LK_ASYNC)
 					lk_dmg_verify_status_register(_lk_var32[LK_VAR32_ADDRESS]);
+#else
+					LK_ASYNC_VERIFY_STATUS_REGISTER();
+					status_register_count++;
+#endif
 					if (_timeout_check()) return;
 				}
 				_lk_var32[LK_VAR32_ADDRESS]++;
 			}
+#if LK_ASYNC
+			LK_ASYNC_VERIFY_STATUS_REGISTER_FLUSH(verify_data_buffer, status_register_count);
+#endif
 		} else { // AGB
 			for (u16 x = 0; x < _lk_var16[LK_VAR16_TRANSFER_SIZE]; x += 2) {
 				data = data_buffer[x + 1] << 8 | data_buffer[x];

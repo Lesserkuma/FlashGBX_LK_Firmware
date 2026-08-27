@@ -19,6 +19,22 @@
 #define LK_CART_PRESENCE_SWITCH_SUPPORT		false
 #define LK_CART_MODE_SWITCH_SUPPORT			false
 
+#define LK_ASYNC					false
+
+#define LK_ASYNC_FLUSH(data, len) {}
+#define LK_ASYNC_VERIFY_DATA(comp) {}
+#define LK_ASYNC_VERIFY_STATUS_REGISTER() {}
+#define LK_ASYNC_VERIFY_STATUS_REGISTER_FLUSH(data, len) {}
+/* This is a smell as it breaks the abstraction, but given different flash
+ * methods submit different numbers of status register checks, we need to track
+ * how many status register responses we're expecting.
+ *
+ * We could return the count from the various flash method implementation
+ * functions, but that would be brittle, hard to test, and require changing the
+ * signature of all of them, making rebasing/merging future changes more
+ * difficult. */
+#define LK_ASYNC_PENDING_VERIFY_STATUS_REGISTER_COUNT() (0)
+
 #define dprint(s, params...)				{}
 
 // Delays including overhead, measured with a DSLogic U3Pro32
