@@ -129,6 +129,8 @@
 #define LK_CMD_QUERY_CART_PWR				0xF4
 #define LK_CMD_SET_PIN						0xF5
 #define LK_CMD_GET_SWITCH_STATE				0xF6
+#define LK_CMD_MULTI_SET_PIN				0xF7
+#define LK_CMD_MULTI_GET_PIN				0xF8
 #define LK_CMD_PING							0xFE
 
 // *** FIRMWARE VARIABLES *** //
@@ -194,6 +196,8 @@ void lk_conn_send_u8(u8 data);
 void lk_conn_send_u16(u16 data);
 void lk_conn_send_u32(u32 data);
 void lk_set_mode(u8 mode);
+void lk_set_pin(u32 pins, u32 value);
+u32 lk_get_pin(u32 pins);
 void lk_dmg_set_address(u16 address);
 void lk_dmg_mbc6_mmsa_write_flash_bytes(void);
 void lk_dmg_mbc7_write(u8 value);

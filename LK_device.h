@@ -72,6 +72,7 @@
 
 #define PIN_AUDIO_DIR_OUT()					{}
 #define PIN_AUDIO_DIR_IN()					{}
+#define PIN_AUDIO_GET()						{}
 
 #define PULLUPS_ON()						{}
 

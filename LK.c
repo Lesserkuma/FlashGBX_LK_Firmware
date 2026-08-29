@@ -697,39 +697,30 @@ void lk_loop(u8 command) {
 			break;
 
 		case LK_CMD_SET_PIN:
-			// args: pin (1 byte), high/low (1 byte)
+			// args: pin (4 byte), high/low (1 byte)
 			{
-				// TODO: change to u32 (1 bit per pin)
 				u32 pins = lk_conn_recv_u32();
 				u8 set = lk_conn_recv_u8(); // 0=set low, 1=set high
-				if ((pins >> 0) & 1) {
-					if (set) { CART_POWER_ON(); } else { CART_POWER_OFF(); }
-				}
-				if ((pins >> 1) & 1) {
-					if (set) { PIN_CLK_H(); } else { PIN_CLK_L(); }
-				}
-				if ((pins >> 2) & 1) {
-					if (set) { PIN_WR_H(); } else { PIN_WR_L(); }
-				}
-				if ((pins >> 3) & 1) {
-					if (set) { PIN_RD_H(); } else { PIN_RD_L(); }
-				}
-				if ((pins >> 4) & 1) {
-					if (set) { PIN_CS_H(); } else { PIN_CS_L(); }
-				}
-				if (pins & 0x1FFFFFE0) { RAW_AGB_ADDR_DIR_OUT(); }
-				for (u8 i = 5; i <= 28; i++) {
-					if ((pins >> i) & 1) {
-						if (set) { PIN_ADDR_H(i - 5); } else { PIN_ADDR_L(i - 5); }
-					}
-				}
-				if ((pins >> 29) & 1) {
-					if (set) { PIN_CS2_H(); } else { PIN_CS2_L(); }
-				}
-				if ((pins >> 30) & 1) {
-					if (set) { PIN_AUDIO_H(); } else { PIN_AUDIO_L(); }
-				}
+				lk_set_pin(pins, set ? 0xFFFFFFFF : 0);
 				lk_conn_send_u8(LK_STATUS_OK);
+			}
+			break;
+
+		case LK_CMD_MULTI_SET_PIN:
+			// args: pin (4 byte), high/low (4 byte)
+			{
+				u32 pins = lk_conn_recv_u32();
+				u32 set = lk_conn_recv_u32(); // 0=set low, 1=set high
+				lk_set_pin(pins, set);
+				lk_conn_send_u8(LK_STATUS_OK);
+			}
+			break;
+
+		case LK_CMD_MULTI_GET_PIN:
+			// args: pin (4 byte), high/low (4 byte)
+			{
+				u32 pins = lk_conn_recv_u32();
+				lk_conn_send_u32(lk_get_pin(pins));
 			}
 			break;
 
@@ -971,6 +962,59 @@ void lk_set_mode(u8 mode) {
 		RAW_AGB_ADDR_DIR_OUT();
 	}
 	_lk_var8[LK_VAR8_CART_MODE] = mode;
+}
+
+void lk_set_pin(u32 pins, u32 value) {
+	if ((pins >> 0) & 1) {
+		if ((value >> 0) & 1) { CART_POWER_ON(); } else { CART_POWER_OFF(); }
+	}
+	if ((pins >> 1) & 1) {
+		if ((value >> 1) & 1) { PIN_CLK_H(); } else { PIN_CLK_L(); }
+	}
+	if ((pins >> 2) & 1) {
+		if ((value >> 2) & 1) { PIN_WR_H(); } else { PIN_WR_L(); }
+	}
+	if ((pins >> 3) & 1) {
+		if ((value >> 3) & 1) { PIN_RD_H(); } else { PIN_RD_L(); }
+	}
+	if ((pins >> 4) & 1) {
+		if ((value >> 4) & 1) { PIN_CS_H(); } else { PIN_CS_L(); }
+	}
+	if (pins & 0x1FFFFFE0) { RAW_AGB_ADDR_DIR_OUT(); }
+	for (u8 i = 5; i <= 28; i++) {
+		if ((pins >> i) & 1) {
+			if ((value >> i) & 1) { PIN_ADDR_H(i - 5); } else { PIN_ADDR_L(i - 5); }
+		}
+	}
+	if ((pins >> 29) & 1) {
+		if ((value >> 29) & 1) { PIN_CS2_H(); } else { PIN_CS2_L(); }
+	}
+	if ((pins >> 30) & 1) {
+		if ((value >> 30) & 1) { PIN_AUDIO_H(); } else { PIN_AUDIO_L(); }
+	}
+}
+
+u32 lk_get_pin(u32 pins) {
+	u32 set = 0;
+	if ((pins >> 0) & 1) {
+		set |= _lk_var8[LK_VAR8_CART_POWERED] ? (1 << 0) : 0;
+	}
+	// 1: CLK unsupported
+	// 2: WR unsupported
+	// 3: RD unsupported
+	// 4: CS unsupported
+	// 5-12: A[0..7] unsupported
+	if (pins & 0x1FFFE000) {
+		RAW_AGB_DATA_DIR_IN();
+		u32 data = RAW_AGB_DATA_GET(); // u32 to ensure left shift works
+		set |= (pins & (data << 12));
+	}
+	// 29: CS2 unsupported
+	if ((pins >> 30) & 1) {
+		PIN_AUDIO_DIR_IN();
+		set |= PIN_AUDIO_GET() ? (1 << 30) : 0;
+	}
+	// 31: GND unsupported
 }
 
 // *** GAME BOY FUNCTIONS *** //
