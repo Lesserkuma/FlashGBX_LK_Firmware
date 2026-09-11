@@ -1835,7 +1835,7 @@ void lk_dmg_agb_flash_unbuffered(void) {
 		} else { // AGB
 			for (u16 x = 0; x < _lk_var16[LK_VAR16_TRANSFER_SIZE]; x += 2) {
 				data = data_buffer[x + 1] << 8 | data_buffer[x];
-				if (data_buffer[x] != 0xFFFF) {
+				if (data != 0xFFFF) {
 					lk_agb_cart_write_short(_lk_flashcmd_addr[0], _lk_flashcmd_data[0]);	// AAA=AA
 					lk_agb_cart_write_short(_lk_flashcmd_addr[1], _lk_flashcmd_data[1]);	// 555=55
 					lk_agb_cart_write_short(_lk_flashcmd_addr[2], _lk_flashcmd_data[2]);	// AAA=A0
