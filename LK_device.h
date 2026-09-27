@@ -35,6 +35,8 @@
 #define _timeout_reset()					time_start = 0;
 #define _timeout_check()					((time_start > 0) && (TIMESTAMP_NOW() - time_start > 500))
 
+#define LK_DEVICE_ON_SET_VARIABLE(size, key, value) {}
+
 #define PIN_WR								/**/
 #define PIN_RD								/**/
 #define PIN_CS								/**/
