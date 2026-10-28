@@ -37,6 +37,10 @@
 #define _timeout_reset()					time_start = 0;
 #define _timeout_check()					((time_start > 0) && (TIMESTAMP_NOW() - time_start > 500))
 
+/* You may want to redefine this to implement a 'real' ping for 'fake'
+ * LK_Device implementations. */
+#define LK_DEVICE_PING(value) (~value)
+
 #define PIN_WR								/**/
 #define PIN_RD								/**/
 #define PIN_CS								/**/

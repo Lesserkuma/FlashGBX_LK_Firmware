@@ -59,7 +59,7 @@ void lk_loop(u8 command) {
 		case LK_CMD_PING:
 			{
 				u8 value = lk_conn_recv_u8();
-				lk_conn_send_u8(~value);
+				lk_conn_send_u8(LK_DEVICE_PING(value));
 			}
 			break;
 
