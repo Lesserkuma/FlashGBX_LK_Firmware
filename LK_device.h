@@ -18,6 +18,8 @@
 #define LK_BOOTLOADER_RESET_SUPPORT			false
 #define LK_CART_PRESENCE_SWITCH_SUPPORT		false
 #define LK_CART_MODE_SWITCH_SUPPORT			false
+#define LK_DEVICE_SERIAL_SIZE				0
+#define LK_GET_DEVICE_SERIAL(data)			((void)(data))
 
 #define dprint(s, params...)				{}
 
@@ -54,6 +56,7 @@
 #define PIN_AUDIO_L()						{}
 #define PIN_CLK_H()							{}
 #define PIN_CLK_L()							{}
+#define PIN_CLK_TOGGLE(num, freq_mhz)		{ for (u32 i = 0; i < num; i++) { PIN_CLK_H(); PIN_CLK_L(); } }
 #define PIN_ADDR_H(pin)						{}
 #define PIN_ADDR_L(pin)						{}
 
